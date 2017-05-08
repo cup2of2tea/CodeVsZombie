@@ -110,7 +110,10 @@ public:
 
     int score;
 
-    ZombieGame() {score=0;}
+    ZombieGame()
+    {
+        score=0;
+    }
     ZombieGame(ZombieGame &z)
     {
         alive = z.alive;
@@ -129,6 +132,12 @@ public:
     }
 
 
+    bool isEnded() {
+        if(alive == 0) return true;
+        for(int c=0;c<zombiesDead.size();c++) if(!zombiesDead[c]) return false;
+        return true;
+    }
+
     void moveZombies()
     {
         for(int c=0; c<zombies.size(); c++)
@@ -139,14 +148,19 @@ public:
             for(int c2=0; c2<humans.size(); c2++)
             {
                 if(humansDead[c2]) continue;
-                int d = dist(humans[c2], zombies[c2]);
+                int d = dist(humans[c2], zombies[c]);
                 if(d < bestDistance)
                 {
                     bestIdx = c2;
                     bestDistance = d;
                 }
             }
-            zombies[c] = moveTo(zombies[c],humans[bestIdx], 400);
+            if(dist(player,zombies[c]) < bestDistance){
+                zombies[c] = moveTo(zombies[c],player,400);
+            } else {
+
+                zombies[c] = moveTo(zombies[c],humans[bestIdx], 400);
+            }
         }
     }
 
@@ -184,7 +198,7 @@ public:
             for(int c2=0; c2<humans.size(); c2++)
             {
                 if(humansDead[c2]) continue;
-                if(dist(zombies[c],humans[c2])<= 400)
+                if(dist(zombies[c],humans[c2])<= 0)
                 {
                     humansDead[c2] = true;
                     alive--;
@@ -204,13 +218,20 @@ public:
     int getScore()
     {
         int minDist = 1e9;
-        for(int c=0;c<humans.size();c++) {
-           // if(humansDead[c]) continue;
+        bool somebodyOutThere = false;
+        for(int c=0; c<humans.size(); c++)
+        {
+            if(!humansDead[c]) somebodyOutThere = true;
+            if(humansDead[c] && alive > 0) continue;
             minDist = min(dist(player,humans[c]),minDist);
         }
-        if(alive<=0) return -100000-minDist/100;
-
-        return score*10000+alive*100-minDist/100;
+        if(somebodyOutThere && alive <= 0) {
+            cerr<<"??"<<endl;
+        }
+        if(alive<=0) return -100000;
+        if(score < 0) cerr<<"oulalal"<<endl;
+        if(alive < 0) cerr<<"oulalabis"<<endl;
+        return score*100;
     }
 
     void display()
@@ -234,27 +255,43 @@ public:
 class ZombieSolution: public Solution
 {
 public:
-    vector<Coord> path;
+    vector<pair<Coord,int> > targets;
     int score;
 
     void apply(ZombieGame &g)
     {
-        for(int c=1; c<path.size(); c++)
+        Coord act(g.player);
+        for(int c=0; c<targets.size() && !g.isEnded(); c++)
         {
+            Coord targetCoord = targets[c].first;
+            int wait = targets[c].second;
+            while(act.x != targetCoord.x || act.y != targetCoord.y)
+            {
+                act = moveTo(act, targetCoord, 1000);
+                g.oneTurn(act.x, act.y);
+            }
+            while(wait--)
+            {
+                g.oneTurn(act.x, act.y);
+            }
             //g.display();
-            g.oneTurn(path[c].x, path[c].y);
+        }
+
+        while(!g.isEnded()) {
+            g.oneTurn(act.x, act.y);
         }
         score = g.getScore();
         //g.display();
+
     }
+
 
     void adaptSolution(ZombieGame &g)
     {
-        for(int c=1; c<path.size(); c++)
+        for(int c=0; c<targets.size(); c++)
         {
-            path[c].x = max(0,min(g.WIDTH,path[c].x));
-            path[c].y = max(0,min(g.HEIGHT,path[c].y));
-            path[c] = moveTo(path[c-1],path[c],1000);
+            targets[c].first.x = max(0,min(g.WIDTH,targets[c].first.x));
+            targets[c].first.y = max(0,min(g.HEIGHT,targets[c].first.y));
         }
     }
 
@@ -270,25 +307,31 @@ public:
 
     virtual void updateMutation()
     {
-        for(int c=1; c<path.size(); c++)
+        for(int c=0; c<targets.size(); c++)
         {
-            if(rand()%100 < 5)
+            if(rand()%100 < 10)
             {
-                path[c].x += rand()%100-50;
-                path[c].y += rand()%100-50;
+                targets[c].first.x = rand()%1000-500;
+                targets[c].first.y += rand()%1000-500;
+            }
+            if(rand()%100 < 30)
+            {
+                targets[c].second = rand()%5;
             }
         }
     }
 
     void crossSolution(ZombieSolution &s)
     {
-        for(int c=1; c<s.path.size(); c++)
+        for(int c=0; c<s.targets.size(); c++)
         {
             if(rand()%2 == 1)
             {
-                path[c].x = s.path[c].x;
-                path[c].y = s.path[c].y;
-
+                targets[c].first.x = s.targets[c].first.x;
+                targets[c].first.y = s.targets[c].first.y;
+            }
+            if(rand()%2 == 1) {
+                targets[c].second = s.targets[c].second;
             }
         }
     }
@@ -300,34 +343,45 @@ public:
 
     void generateSolution(ZombieGame &g)
     {
-        path.resize(2);
-        path[0] = g.player;
-
-        for(int c=1; c<2; c++)
+        targets.resize(5);
+        for(int c=0; c<5; c++)
         {
-            path[c].x = path[c-1].x + rand()%2000-1000;
-            path[c].y = path[c-1].y + rand()%2000-1000;
-            path[c].x = max(0,min(g.WIDTH,path[c].x));
-            path[c].y = max(0,min(g.HEIGHT,path[c].y));
+            targets[c].first.x = rand()%g.WIDTH;
+            targets[c].first.y = rand()%g.HEIGHT;
+            targets[c].second = rand()%5;
         }
         adaptSolution(g);
     }
-    void display() {
-        for(int c=0;c<path.size();c++) {
-            cerr<<path[c].x<<" "<<path[c].y<<"->";
+
+    void generateFromCoord(Coord &coord) {
+        targets.resize(5);
+        for(int c=0;c<5;c++) {
+            targets[c].first.x = coord.x;
+            targets[c].first.y = coord.y;
+            targets[c].second = 5;
+        }
+    }
+
+    void display()
+    {
+        for(int c=0; c<targets.size(); c++)
+        {
+            cerr<<targets[c].first.x<<" "<<targets[c].first.y<<"->";
         }
         cerr<<endl;
     }
 
-    void operator=(ZombieSolution &s2) {
-    path.resize(s2.path.size());
-    copy(s2.path.begin(),s2.path.end(),path.begin());
-}
+    void operator=(ZombieSolution &s2)
+    {
+        targets.resize(s2.targets.size());
+        copy(s2.targets.begin(),s2.targets.end(),targets.begin());
+    }
 
 };
 
 
-class ZombieAG {
+class ZombieAG
+{
 public:
 
     int sizeRes;
@@ -337,43 +391,67 @@ public:
     vector<ZombieSolution> population;
     vector<pair<int,int> > ordering;
 
-    ZombieAG(){}
+    ZombieAG() {}
 
-    ZombieAG(ZombieGame &g, int _sizeRes = 10, int _sizeCrossing = 4){
+    ZombieAG(ZombieGame &g, int _sizeRes = 10, int _sizeCrossing = 4)
+    {
         sizeRes =_sizeRes;
         sizeCrossing = _sizeCrossing;
         population.resize(sizeRes);
         ordering.resize(sizeRes);
-        for(int c=0;c<sizeRes;c++) {
-            population[c].generateSolution(g);
-            ordering[c] = make_pair(0,c);
+        population[0].generateFromCoord(g.player);
+        ordering[0] = make_pair(0,0);
+        for(int c=0;c<g.humans.size();c++) {
+            population[c+1].generateFromCoord(g.humans[c]);
+            ZombieGame g2(g);
+            population[c+1].apply(g2);
+            ordering[c+1] = make_pair(0,c+1);
         }
+        for(int c=g.humans.size()+1; c<sizeRes; c++)
+        {
+            population[c].generateSolution(g);
+        }
+
     }
 
-    void evaluate(ZombieGame &g) {
-        for(int c=0;c<population.size();c++) {
+    void evaluate(ZombieGame &g)
+    {
+        for(int c=0; c<population.size(); c++)
+        {
             ZombieGame gtmp(g);
             population[c].apply(gtmp);
+            if(c==1) {
+                cerr<<"first "<<endl;
+                gtmp.display();
+                cerr<<population[c].score<<endl;
+            }
+            ordering[c].second = c;
             ordering[c].first = population[c].score;
         }
     }
 
-    void precomputeForCrossing() {
+    void precomputeForCrossing()
+    {
         sort(ordering.rbegin(), ordering.rend());
     }
 
-    void select(int &idx1, int &idx2) {
-        do{
+    void select(int &idx1, int &idx2)
+    {
+        do
+        {
             idx1 = rand() % sizeCrossing;
             idx2 = rand() % sizeCrossing;
-        }while(idx1 == idx2);
+        }
+        while(idx1 == idx2);
         idx1 = ordering[idx1].second;
         idx2 = ordering[idx2].second;
     }
 
-    void crossPopulation() {
+    void crossPopulation()
+    {
         vector<ZombieSolution> pop(population);
-        for(int c=0;c<sizeRes;c++) {
+        for(int c=0; c<sizeRes; c++)
+        {
             int i1, i2;
             select(i1,i2);
             population[c] = pop[i1];
@@ -381,28 +459,53 @@ public:
         }
     }
 
-    void mutate() {
-        for(int c=0;c<population.size();c++) {
+    void mutate()
+    {
+        for(int c=0; c<population.size(); c++)
+        {
             population[c].mutation();
         }
     }
 
-    void adapt(ZombieGame &g) {
-        for(int c=0;c<population.size();c++) {
+    void adapt(ZombieGame &g)
+    {
+        for(int c=0; c<population.size(); c++)
+        {
             population[c].adaptSolution(g);
         }
     }
 
-    void evolute(int steps, ZombieGame &g) {
-        for(int c=0;c<steps;c++) {
+    ZombieSolution evolute(int steps, ZombieGame &g)
+    {
+        ZombieSolution best;
+        int bestScore = -1e9;
+        for(int c=0; c<steps; c++)
+        {
             evaluate(g);
+
             precomputeForCrossing();
+            if(c == 0) {
+                for(int c2=0;c2<ordering.size();c2++) {
+                    cerr<<ordering[c2].first<<" "<<ordering[c2].second<<endl;
+                }
+            }
+            if(ordering[0].first > bestScore) {
+                bestScore = ordering[0].first;
+                best = population[ordering[0].second];
+                cerr<<bestScore<<endl;
+                best.display();
+                ZombieGame g2(g);
+                best.apply(g2);
+                g2.display();
+                cerr<<best.score<<endl;
+            }
             crossPopulation();
             mutate();
             adapt(g);
         }
         evaluate(g);
         precomputeForCrossing();
+        return best;
     }
 
 };
@@ -438,40 +541,17 @@ int main()
         }
         g.display();
 
-        ZombieAG ag(g,50,5);
-        ag.evolute(40,g);
+        ZombieAG ag(g,20,5);
+        ZombieSolution zs = ag.evolute(20,g);
 
-        ZombieSolution zs= ag.population[ag.ordering[0].second];
         zs.display();
+        zs.apply(g);
+        g.display();
         cerr<<zs.score<<endl;
-        cout<<zs.path[1].x<<" "<<zs.path[1].y<<endl;
+        cout<<zs.targets[0].first.x<<" "<<zs.targets[0].first.y<<endl;
 
         continue;
-        int best = -1e9;
-        Coord bestAction;
-        ZombieSolution bestSolution;
-        //ZombieSolution zs;
-        for(int c=0; c<1000; c++)
-        {
-            ZombieGame g2(g);
-
-            zs.generateSolution(g2);
-            zs.apply(g2);
-            //cerr<<g2.getScore()<<endl;
-            if(g2.getScore() > best)
-            {
-                best = g2.getScore();
-                bestAction = zs.path[1];
-                bestSolution = zs;
-            }
-            //g2.display();
-
-        }
-        bestSolution.display();
-        cerr<<best<<endl;
-        cout<<bestAction.x<<" "<<bestAction.y<<endl;
     }
-
 
 }
 
